@@ -2,23 +2,17 @@ using ARMeilleure.Memory;
 using Ryujinx.Common;
 using Ryujinx.Memory;
 using System;
-using System.Runtime.InteropServices;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 
 namespace Ryujinx.Cpu.LightningJit.Cache
 {
-    class WriteZeroCache : IDisposable
+    class DualMappedNoWxCache : IDisposable
     {
-        private const int CodeAlignment = 4; 
-        private const int InitialCacheSize = 2 * 1024 * 1024; 
-        private const int GrowthCacheSize = 2 * 1024 * 1024;  
-        private const int MaxSharedCacheSize = 512 * 1024 * 1024;
-        private const int MaxLocalCacheSize = 128 * 1024 * 1024; 
-
-        [DllImport("StosJIT.framework/StosJIT", EntryPoint = "writeZeroToMemory")]
-        public static extern bool WriteZeroToMemory(ulong addr, int length);
+        private const int CodeAlignment = 4; // Bytes.
+        private const int SharedCacheSize = 512 * 1024 * 1024;
+        private const int LocalCacheSize = 128 * 1024 * 1024;
 
         // How many calls to the same function we allow until we pad the shared cache to force the function to become available there
         // and allow the guest to take the fast path.
@@ -26,104 +20,24 @@ namespace Ryujinx.Cpu.LightningJit.Cache
 
         private class MemoryCache : IDisposable
         {
-            private readonly ReservedRegion _region;
+            private readonly DualMappedJitAllocator _allocator;
             private readonly CacheMemoryAllocator _cacheAllocator;
-            public readonly IJitMemoryAllocator Allocator;
-            private readonly ulong _maxSize;
-            private ulong _currentSize;
-            
-            private readonly Dictionary<int, HashSet<int>> _reusePages; 
-            private readonly object _reuselock = new object();
+            public DualMappedJitAllocator Allocator => _allocator;
+            public IntPtr RwPointer => _allocator.RwPtr;
+            public IntPtr RxPointer => _allocator.RxPtr;
 
             public CacheMemoryAllocator CacheAllocator => _cacheAllocator;
-            public IntPtr Pointer => _region.Block.Pointer;
-            public ulong CurrentSize => _currentSize;
-            public ulong MaxSize => _maxSize;
+            public IntPtr Pointer => _allocator.RwPtr; 
 
-            public MemoryCache(IJitMemoryAllocator allocator, ulong maxSize)
+            public MemoryCache(ulong size)
             {
-                Allocator = allocator;
-                _maxSize = maxSize;
-                _currentSize = InitialCacheSize;
-
-                
-                _region = new(allocator, maxSize);
-                _cacheAllocator = new((int)maxSize);
-                
-                _reusePages = new Dictionary<int, HashSet<int>>();
-
-                _region.Block.MapAsRw(0, _currentSize);
-                _region.ExpandIfNeeded(_currentSize);
-
-                WriteZeroToMemory((ulong)_region.Block.Pointer.ToInt64(), (int)_currentSize);
-            }
-
-            public bool TryGetReusablePage(int size, out int offset)
-            {
-                lock (_reuselock)
-                {
-                    if (_reusePages.TryGetValue(size, out var exactOffsets) && exactOffsets.Count > 0)
-                    {
-                        offset = exactOffsets.First();
-                        exactOffsets.Remove(offset);
-                        return true;
-                    }
-
-                    var largerSizes = _reusePages.Where(kvp => kvp.Key > size && kvp.Value.Count > 0)
-                                                 .OrderBy(kvp => kvp.Key)
-                                                 .FirstOrDefault();
-
-                    if (largerSizes.Value != null && largerSizes.Value.Count > 0)
-                    {
-                        int largerSize = largerSizes.Key;
-                        var largerOffsets = largerSizes.Value;
-                        
-                        offset = largerOffsets.First();
-                        largerOffsets.Remove(offset);
-                        
-                        int remainingSize = largerSize - size;
-                        if (remainingSize > 0)
-                        {
-                            AddReusablePage(offset + size, remainingSize);
-                        }
-                        
-                        return true;
-                    }
-                    
-                    offset = -1;
-                    return false;
-                }
-            }
-
-            public void AddReusablePage(int offset, int size)
-            {
-                if (size < (int)MemoryBlock.GetPageSize())
-                {
-                    return;
-                }
-                
-                lock (_reuselock)
-                {
-                    if (!_reusePages.TryGetValue(size, out var offsets))
-                    {
-                        offsets = new HashSet<int>();
-                        _reusePages[size] = offsets;
-                    }
-                    offsets.Add(offset);
-                }
+                _allocator = new DualMappedJitAllocator(size);
+                _cacheAllocator = new((int)size);
             }
 
             public int Allocate(int codeSize)
             {
                 codeSize = AlignCodeSize(codeSize);
-                
-                if (codeSize >= (int)MemoryBlock.GetPageSize() && 
-                    (codeSize % (int)MemoryBlock.GetPageSize() == 0) && 
-                    TryGetReusablePage(codeSize, out int reuseOffset))
-                {
-                    ReprotectAsRw(reuseOffset, codeSize);
-                    return reuseOffset;
-                }
 
                 int allocOffset = _cacheAllocator.Allocate(codeSize);
 
@@ -132,75 +46,23 @@ namespace Ryujinx.Cpu.LightningJit.Cache
                     throw new OutOfMemoryException("JIT Cache exhausted.");
                 }
 
-    
-                ulong requiredSize = (ulong)allocOffset + (ulong)codeSize;
-                if (requiredSize > _currentSize)
-                {
-                    ulong neededGrowth = requiredSize - _currentSize;
-                    ulong growthIncrements = (neededGrowth + GrowthCacheSize - 1) / GrowthCacheSize;
-                    ulong newSize = _currentSize + (growthIncrements * GrowthCacheSize);
-                    
-                    newSize = Math.Min(newSize, _maxSize);
-                    
-                    if (newSize <= _currentSize || requiredSize > newSize)
-                    {
-                        throw new OutOfMemoryException("JIT Cache exhausted, cannot grow further.");
-                    }
-                
-                    _region.Block.MapAsRw(_currentSize, newSize - _currentSize);
-                    _region.ExpandIfNeeded(newSize);
-                    
-                    WriteZeroToMemory((ulong)(_region.Block.Pointer.ToInt64() + (long)_currentSize), (int)(newSize - _currentSize));
-                    
-                    _currentSize = newSize;
-                }
-
                 return allocOffset;
             }
 
             public void Free(int offset, int size)
             {
-                if (size >= (int)MemoryBlock.GetPageSize() && (size % (int)MemoryBlock.GetPageSize() == 0) &&
-                    (offset % (int)MemoryBlock.GetPageSize() == 0))
-                {
-                    AddReusablePage(offset, size);
-                }
-                else
-                {
-                    _cacheAllocator.Free(offset, size);
-                }
+                _cacheAllocator.Free(offset, size);
             }
 
-            public void ReprotectAsRw(int offset, int size)
+            public void SysIcacheInvalidate(int offset, int size)
             {
-                Debug.Assert(offset >= 0 && (offset & (int)(MemoryBlock.GetPageSize() - 1)) == 0);
-                Debug.Assert(size > 0 && (size & (int)(MemoryBlock.GetPageSize() - 1)) == 0);
-
-                _region.Block.MapAsRw((ulong)offset, (ulong)size);
-            }
-
-            public void ReprotectAsRx(int offset, int size)
-            {
-                Debug.Assert(offset >= 0 && (offset & (int)(MemoryBlock.GetPageSize() - 1)) == 0);
-                Debug.Assert(size > 0 && (size & (int)(MemoryBlock.GetPageSize() - 1)) == 0);
-
-                _region.Block.MapAsRx((ulong)offset, (ulong)size);
-
                 if (OperatingSystem.IsMacOS() || OperatingSystem.IsIOS())
                 {
-                    JitSupportDarwin.SysIcacheInvalidate(_region.Block.Pointer + offset, size);
+                    JitSupportDarwin.SysIcacheInvalidate(_allocator.RxPtr + offset, size);
                 }
                 else
                 {
                     throw new PlatformNotSupportedException();
-                }
-            }
-
-            public void ClearReusePool()
-            {
-                lock (_reuselock)
-                {
-                    _reusePages.Clear();
                 }
             }
 
@@ -213,8 +75,7 @@ namespace Ryujinx.Cpu.LightningJit.Cache
             {
                 if (disposing)
                 {
-                    ClearReusePool();
-                    _region.Dispose();
+                    _allocator.Dispose();
                     _cacheAllocator.Clear();
                 }
             }
@@ -259,12 +120,12 @@ namespace Ryujinx.Cpu.LightningJit.Cache
         [ThreadStatic]
         private static Dictionary<ulong, ThreadLocalCacheEntry> _threadLocalCache;
 
-        public WriteZeroCache(IJitMemoryAllocator allocator, IStackWalker stackWalker, Translator translator)
+        public DualMappedNoWxCache(IJitMemoryAllocator allocator, IStackWalker stackWalker, Translator translator)
         {
             _stackWalker = stackWalker;
             _translator = translator;
-            _sharedCaches = new List<MemoryCache> { new(allocator, MaxSharedCacheSize) };
-            _localCaches = new List<MemoryCache> { new(allocator, MaxLocalCacheSize) };
+            _sharedCaches = new List<MemoryCache> { new(SharedCacheSize) };
+            _localCaches = new List<MemoryCache> { new(LocalCacheSize) };
             _pendingMaps = new Dictionary<ulong, PageAlignedRangeList>();
             _lock = new();
         }
@@ -275,7 +136,7 @@ namespace Ryujinx.Cpu.LightningJit.Cache
             if (!_pendingMaps.TryGetValue(cacheKey, out var pendingMap))
             {
                 pendingMap = new PageAlignedRangeList(
-                    (offset, size) => _sharedCaches[cacheIndex].ReprotectAsRx(offset, size),
+                    (offset, size) => _sharedCaches[cacheIndex].SysIcacheInvalidate(offset, size),
                     (address, func) => RegisterFunction(address, func));
                 _pendingMaps[cacheKey] = pendingMap;
             }
@@ -304,15 +165,13 @@ namespace Ryujinx.Cpu.LightningJit.Cache
                 }
                 catch (OutOfMemoryException)
                 {
-                    // Try next cache
                 }
             }
 
-            // All existing caches are full, create a new one
             lock (_lock)
             {
                 var allocator = _sharedCaches[0].Allocator;
-                _sharedCaches.Add(new(allocator, MaxSharedCacheSize));
+                _sharedCaches.Add(new(SharedCacheSize));
                 return (_sharedCaches.Count - 1) << 28 | _sharedCaches[_sharedCaches.Count - 1].Allocate(codeLength);
             }
         }
@@ -327,14 +186,14 @@ namespace Ryujinx.Cpu.LightningJit.Cache
                 }
                 catch (OutOfMemoryException)
                 {
-                    // Try next cache
+                    
                 }
             }
 
             lock (_lock)
             {
                 var allocator = _localCaches[0].Allocator;
-                _localCaches.Add(new(allocator, MaxLocalCacheSize));
+                _localCaches.Add(new(LocalCacheSize));
                 return (_localCaches.Count - 1) << 28 | _localCaches[_localCaches.Count - 1].Allocate(codeLength);
             }
         }
@@ -360,8 +219,8 @@ namespace Ryujinx.Cpu.LightningJit.Cache
                     
                     MemoryCache cache = _sharedCaches[cacheIndex];
                     funcPtr = cache.Pointer + funcOffset;
-
                     code.CopyTo(new Span<byte>((void*)funcPtr, code.Length));
+                    funcPtr = cache.RxPointer + funcOffset;
 
                     TranslatedFunction function = new(funcPtr, guestSize);
                     
@@ -396,21 +255,22 @@ namespace Ryujinx.Cpu.LightningJit.Cache
                         Debug.Assert((funcOffset & ((int)MemoryBlock.GetPageSize() - 1)) == 0);
 
                         IntPtr funcPtr1 = _sharedCaches[cacheIndex].Pointer + funcOffset;
-
                         code.CopyTo(new Span<byte>((void*)funcPtr1, code.Length));
+                        funcPtr1 = _sharedCaches[cacheIndex].RxPointer + funcOffset;
 
-                        _sharedCaches[cacheIndex].ReprotectAsRx(funcOffset, sizeAligned);
+                        _sharedCaches[cacheIndex].SysIcacheInvalidate(funcOffset, sizeAligned);
 
                         return funcPtr1;
                     }
                     catch (OutOfMemoryException)
                     {
-                        // Try next cache
                     }
                 }
 
+                
+
                 var allocator = _sharedCaches[0].Allocator;
-                var newCache = new MemoryCache(allocator, MaxSharedCacheSize);
+                var newCache = new MemoryCache(SharedCacheSize);
                 _sharedCaches.Add(newCache);
                 cacheIndex = _sharedCaches.Count - 1;
                 
@@ -425,8 +285,9 @@ namespace Ryujinx.Cpu.LightningJit.Cache
 
                 IntPtr funcPtr = newCache.Pointer + funcOffset;
                 code.CopyTo(new Span<byte>((void*)funcPtr, code.Length));
+                funcPtr = newCache.RxPointer + funcOffset;
 
-                newCache.ReprotectAsRx(funcOffset, newSizeAligned);
+                newCache.SysIcacheInvalidate(funcOffset, newSizeAligned);
 
                 return funcPtr;
             }
@@ -481,8 +342,8 @@ namespace Ryujinx.Cpu.LightningJit.Cache
 
             for (int i = 0; i < _localCaches.Count; i++)
             {
-                cachePointers[i] = _localCaches[i].Pointer;
-                cacheSizes[i] = (int)_localCaches[i].CurrentSize;
+                cachePointers[i] = _localCaches[i].RxPointer;
+                cacheSizes[i] = LocalCacheSize;
             }
 
             IntPtr[] sharedPointers = new IntPtr[_sharedCaches.Count];
@@ -490,19 +351,20 @@ namespace Ryujinx.Cpu.LightningJit.Cache
 
             for (int i = 0; i < _sharedCaches.Count; i++)
             {
-                sharedPointers[i] = _sharedCaches[i].Pointer;
-                sharedSizes[i] = (int)_sharedCaches[i].CurrentSize;
+                sharedPointers[i] = _sharedCaches[i].RxPointer;
+                sharedSizes[i] = SharedCacheSize;
             }
 
+            // Iterate over the arrays and pass each element to GetCallStack
             IEnumerable<ulong> callStack = null;
             for (int i = 0; i < _localCaches.Count; i++)
             {
                 callStack = _stackWalker.GetCallStack(
                     framePointer,
-                    cachePointers[i],   
-                    cacheSizes[i],     
-                    sharedPointers[i],  
-                    sharedSizes[i]     
+                    cachePointers[i],   // Passing each individual cachePointer
+                    cacheSizes[i],      // Passing each individual cacheSize
+                    sharedPointers[i],  // Passing each individual sharedPointer
+                    sharedSizes[i]      // Passing each individual sharedSize
                 );
             }
 
@@ -510,12 +372,16 @@ namespace Ryujinx.Cpu.LightningJit.Cache
 
             foreach ((ulong address, ThreadLocalCacheEntry entry) in _threadLocalCache)
             {
+                // We only want to delete if the function is already on the shared cache,
+                // otherwise we will keep translating the same function over and over again.
                 bool canDelete = !HasInAnyPendingMap(address);
                 if (!canDelete)
                 {
                     continue;
                 }
 
+                // We can only delete if the function is not part of the current thread call stack,
+                // otherwise we will crash the program when the thread returns to it.
                 foreach (ulong funcAddress in callStack)
                 {
                     if (funcAddress >= (ulong)entry.FuncPtr && funcAddress < (ulong)entry.FuncPtr + (ulong)entry.Size)
@@ -541,12 +407,14 @@ namespace Ryujinx.Cpu.LightningJit.Cache
                 var (cacheIndex, offset) = SplitCacheOffset(entry.Offset);
 
                 _localCaches[cacheIndex].Free(offset, sizeAligned);
-                _localCaches[cacheIndex].ReprotectAsRw(offset, sizeAligned);
             }
         }
 
+
         public void ClearEntireThreadLocalCache()
         {
+            // Thread is exiting, delete everything.
+
             if (_threadLocalCache == null)
             {
                 return;
@@ -560,7 +428,6 @@ namespace Ryujinx.Cpu.LightningJit.Cache
                 var (cacheIndex, offset) = SplitCacheOffset(entry.Offset);
 
                 _localCaches[cacheIndex].Free(offset, sizeAligned);
-                _localCaches[cacheIndex].ReprotectAsRw(offset, sizeAligned);
             }
 
             _threadLocalCache.Clear();
@@ -577,10 +444,11 @@ namespace Ryujinx.Cpu.LightningJit.Cache
 
             IntPtr funcPtr = _localCaches[cacheIndex].Pointer + funcOffset;
             code.CopyTo(new Span<byte>((void*)funcPtr, code.Length));
+            funcPtr = _localCaches[cacheIndex].RxPointer + funcOffset;
 
             (_threadLocalCache ??= new()).Add(guestAddress, new(funcOffset, code.Length, funcPtr, cacheIndex));
 
-            _localCaches[cacheIndex].ReprotectAsRx(funcOffset, alignedSize);
+            _localCaches[cacheIndex].SysIcacheInvalidate(funcOffset, alignedSize);
 
             return funcPtr;
         }
