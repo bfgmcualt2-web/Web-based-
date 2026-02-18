@@ -1,0 +1,140 @@
+# MelonJR (MeloNX) — Unsigned IPA artifact build.
+# Builds the iOS app and uploads unsigned IPA artifact.
+
+name: Unsigned IPA
+
+on:
+  push:
+    branches: [ XC-ios-ht, main, master ]
+  workflow_dispatch:
+
+jobs:
+  ipa:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Select Xcode
+        run: |
+          if [ -d "/Applications/Xcode_26.3.app" ]; then
+            sudo xcode-select -s /Applications/Xcode_26.3.app/Contents/Developer
+          elif [ -d "/Applications/Xcode_26.2.app" ]; then
+            sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
+          else
+            sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+          fi
+          xcodebuild -version
+
+      - name: Find Xcode project
+        id: find_project
+        run: |
+          # Look for .xcodeproj or .xcworkspace
+          PROJECT=$(find . -name "*.xcodeproj" -o -name "*.xcworkspace" | grep -i melonx | head -1)
+          if [ -z "$PROJECT" ]; then
+            PROJECT=$(find . -name "*.xcodeproj" -o -name "*.xcworkspace" | head -1)
+          fi
+          if [ -z "$PROJECT" ]; then
+            echo "project_path=" >> $GITHUB_OUTPUT
+            echo "project_type=" >> $GITHUB_OUTPUT
+            echo "scheme=" >> $GITHUB_OUTPUT
+            echo "No Xcode project found"
+            exit 0
+          fi
+          
+          PROJECT_DIR=$(dirname "$PROJECT")
+          PROJECT_NAME=$(basename "$PROJECT" .xcodeproj)
+          PROJECT_NAME=$(basename "$PROJECT_NAME" .xcworkspace)
+          
+          if [[ "$PROJECT" == *.xcworkspace ]]; then
+            PROJECT_TYPE="workspace"
+            WORKSPACE_NAME=$(basename "$PROJECT" .xcworkspace)
+          else
+            PROJECT_TYPE="project"
+          fi
+          
+          # Try to find scheme
+          SCHEME=$(xcodebuild -list -project "$PROJECT" 2>/dev/null | grep -A 100 "Schemes:" | grep -v "Schemes:" | head -1 | xargs || echo "$PROJECT_NAME")
+          if [ -z "$SCHEME" ] || [ "$SCHEME" = "Schemes:" ]; then
+            SCHEME="$PROJECT_NAME"
+          fi
+          
+          echo "project_path=$PROJECT" >> $GITHUB_OUTPUT
+          echo "project_dir=$PROJECT_DIR" >> $GITHUB_OUTPUT
+          echo "project_type=$PROJECT_TYPE" >> $GITHUB_OUTPUT
+          echo "scheme=$SCHEME" >> $GITHUB_OUTPUT
+          echo "workspace_name=$WORKSPACE_NAME" >> $GITHUB_OUTPUT
+          echo "Found: $PROJECT_TYPE at $PROJECT, scheme: $SCHEME"
+
+      - name: Build (unsigned) for iOS device
+        if: steps.find_project.outputs.project_path != ''
+        run: |
+          set -euo pipefail
+          cd "${{ steps.find_project.outputs.project_dir }}"
+          
+          if [ "${{ steps.find_project.outputs.project_type }}" = "workspace" ]; then
+            xcodebuild -workspace "${{ steps.find_project.outputs.workspace_name }}.xcworkspace" \
+              -scheme "${{ steps.find_project.outputs.scheme }}" \
+              -destination 'generic/platform=iOS' \
+              -configuration Release \
+              -sdk iphoneos \
+              -derivedDataPath build/DerivedData \
+              CODE_SIGN_IDENTITY="" \
+              CODE_SIGNING_REQUIRED=NO \
+              CODE_SIGNING_ALLOWED=NO \
+              DEVELOPMENT_TEAM="" \
+              build
+          else
+            xcodebuild -project "${{ steps.find_project.outputs.project_path }}" \
+              -scheme "${{ steps.find_project.outputs.scheme }}" \
+              -destination 'generic/platform=iOS' \
+              -configuration Release \
+              -sdk iphoneos \
+              -derivedDataPath build/DerivedData \
+              CODE_SIGN_IDENTITY="" \
+              CODE_SIGNING_REQUIRED=NO \
+              CODE_SIGNING_ALLOWED=NO \
+              DEVELOPMENT_TEAM="" \
+              build
+          fi
+
+      - name: Package Unsigned IPA
+        if: steps.find_project.outputs.project_path != ''
+        run: |
+          set -euo pipefail
+          cd "${{ steps.find_project.outputs.project_dir }}"
+          
+          APP_PATH="build/DerivedData/Build/Products/Release-iphoneos/${{ steps.find_project.outputs.scheme }}.app"
+          [ -d "$APP_PATH" ] || APP_PATH=$(find build/DerivedData -name "*.app" -type d | grep -i melonx | head -1)
+          [ -d "$APP_PATH" ] || APP_PATH=$(find build/DerivedData -name "*.app" -type d | head -1)
+          
+          if [ ! -d "$APP_PATH" ]; then
+            echo "App bundle not found"
+            exit 1
+          fi
+          
+          APP_NAME=$(basename "$APP_PATH" .app)
+          mkdir -p build/IPA/Payload
+          rm -rf "build/IPA/Payload/$APP_NAME.app"
+          cp -R "$APP_PATH" "build/IPA/Payload/"
+          
+          mkdir -p "$GITHUB_WORKSPACE/ipa-out"
+          (cd build/IPA && ditto -c -k --sequesterRsrc --keepParent Payload "$GITHUB_WORKSPACE/ipa-out/$APP_NAME-unsigned.ipa")
+          ls -lh "$GITHUB_WORKSPACE/ipa-out/$APP_NAME-unsigned.ipa"
+
+      - name: Upload Unsigned IPA artifact
+        if: steps.find_project.outputs.project_path != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: MelonJR-unsigned-ipa
+          path: ipa-out/*.ipa
+          retention-days: 30
+
+      - name: No Xcode project found
+        if: steps.find_project.outputs.project_path == ''
+        run: |
+          echo "No Xcode project (.xcodeproj or .xcworkspace) found in repository."
+          echo "Please ensure the Xcode project is committed or generated before building."
+          exit 1
