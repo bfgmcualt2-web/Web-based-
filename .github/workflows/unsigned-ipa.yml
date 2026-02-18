@@ -50,7 +50,11 @@ jobs:
               echo "project_type=" >> $GITHUB_OUTPUT
               echo "scheme=" >> $GITHUB_OUTPUT
               echo "workspace_name=" >> $GITHUB_OUTPUT
-              echo "No Xcode project found"
+              echo "ERROR: No Xcode project found at src/MeloNX/MeloNX.xcodeproj"
+              echo "The Xcode project must be committed to git or generated before building."
+              echo "Checked locations:"
+              ls -la src/MeloNX/ 2>/dev/null || echo "  src/MeloNX/ directory not found"
+              find . -name "*.xcodeproj" -o -name "*.xcworkspace" 2>/dev/null | head -5 || echo "  No .xcodeproj or .xcworkspace found"
               exit 0
             fi
             
