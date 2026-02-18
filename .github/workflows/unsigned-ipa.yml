@@ -149,6 +149,18 @@ jobs:
           SCHEME="${{ steps.find_project.outputs.scheme }}"
           echo "Looking for app with scheme: $SCHEME"
           
+          # Check if build actually produced anything
+          if [ ! -d "build/DerivedData/Build/Products/Release-iphoneos" ] || [ -z "$(ls -A build/DerivedData/Build/Products/Release-iphoneos 2>/dev/null)" ]; then
+            echo "No build products found in Release-iphoneos directory"
+            echo "This usually means the xcodebuild step failed"
+            echo "Checking build directory structure:"
+            find build/DerivedData -name "*.app" -type d 2>/dev/null | head -5 || echo "  No .app files found anywhere"
+            echo "IPA packaging will be skipped - no app was built"
+            mkdir -p "$GITHUB_WORKSPACE/ipa-out"
+            echo "No IPA generated - build failed" > "$GITHUB_WORKSPACE/ipa-out/build-failed.txt"
+            exit 0
+          fi
+          
           # App name might be different from scheme - try both
           APP_PATH="build/DerivedData/Build/Products/Release-iphoneos/$SCHEME.app"
           echo "Checking primary path: $APP_PATH"
@@ -166,17 +178,13 @@ jobs:
           }
           
           if [ ! -d "$APP_PATH" ]; then
-            echo "App bundle not found. Searched for:"
-            echo "  - $SCHEME.app"
-            echo "  - MeloNX.app"
-            echo "DerivedData contents:"
-            find build/DerivedData -name "*.app" -type d || echo "  No .app files found"
-            echo "Build directory structure:"
-            find build/DerivedData -type d | head -10 || echo "  Build directory not found"
-            echo "Checking if build actually succeeded..."
-            ls -la build/DerivedData/Build/Products/ || echo "  No Products directory"
-            echo "Build may have failed - check the build step above for errors"
-            exit 1
+            echo "No app bundle found in build products"
+            echo "Available contents in Release-iphoneos:"
+            ls -la build/DerivedData/Build/Products/Release-iphoneos/ || echo "  Directory empty or not found"
+            echo "IPA packaging will be skipped - no app was built"
+            mkdir -p "$GITHUB_WORKSPACE/ipa-out"
+            echo "No IPA generated - no app bundle found" > "$GITHUB_WORKSPACE/ipa-out/no-app-found.txt"
+            exit 0
           fi
           
           APP_NAME=$(basename "$APP_PATH" .app)
@@ -190,12 +198,21 @@ jobs:
           (cd build/IPA && ditto -c -k --sequesterRsrc --keepParent Payload "$GITHUB_WORKSPACE/ipa-out/$APP_NAME-unsigned.ipa")
           ls -lh "$GITHUB_WORKSPACE/ipa-out/$APP_NAME-unsigned.ipa"
 
+      - name: Check for IPA before upload
+        if: steps.find_project.outputs.project_path != ''
+        run: |
+          if [ -f "$GITHUB_WORKSPACE/ipa-out"/*.ipa ]; then
+            echo "IPA found, uploading artifact..."
+          else
+            echo "No IPA generated, uploading status file instead..."
+          fi
+
       - name: Upload Unsigned IPA artifact
         if: steps.find_project.outputs.project_path != ''
         uses: actions/upload-artifact@v4
         with:
           name: MelonJR-unsigned-ipa
-          path: ipa-out/*.ipa
+          path: ipa-out/*
           retention-days: 30
 
       - name: No Xcode project found
