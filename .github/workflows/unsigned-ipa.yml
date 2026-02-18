@@ -31,34 +31,45 @@ jobs:
       - name: Find Xcode project
         id: find_project
         run: |
-          # Look for .xcodeproj or .xcworkspace
-          PROJECT=$(find . -name "*.xcodeproj" -o -name "*.xcworkspace" | grep -i melonx | head -1)
-          if [ -z "$PROJECT" ]; then
-            PROJECT=$(find . -name "*.xcodeproj" -o -name "*.xcworkspace" | head -1)
-          fi
-          if [ -z "$PROJECT" ]; then
-            echo "project_path=" >> $GITHUB_OUTPUT
-            echo "project_type=" >> $GITHUB_OUTPUT
-            echo "scheme=" >> $GITHUB_OUTPUT
-            echo "No Xcode project found"
-            exit 0
-          fi
-          
-          PROJECT_DIR=$(dirname "$PROJECT")
-          PROJECT_NAME=$(basename "$PROJECT" .xcodeproj)
-          PROJECT_NAME=$(basename "$PROJECT_NAME" .xcworkspace)
-          
-          if [[ "$PROJECT" == *.xcworkspace ]]; then
-            PROJECT_TYPE="workspace"
-            WORKSPACE_NAME=$(basename "$PROJECT" .xcworkspace)
-          else
+          # Check known MeloNX project location first
+          if [ -d "src/MeloNX/MeloNX.xcodeproj" ]; then
+            PROJECT="src/MeloNX/MeloNX.xcodeproj"
+            PROJECT_DIR="src/MeloNX"
             PROJECT_TYPE="project"
-          fi
-          
-          # Try to find scheme
-          SCHEME=$(xcodebuild -list -project "$PROJECT" 2>/dev/null | grep -A 100 "Schemes:" | grep -v "Schemes:" | head -1 | xargs || echo "$PROJECT_NAME")
-          if [ -z "$SCHEME" ] || [ "$SCHEME" = "Schemes:" ]; then
-            SCHEME="$PROJECT_NAME"
+            SCHEME="com.Stossy11.MeloNX.RyujinxAg"
+            echo "Found MeloNX project at $PROJECT"
+          else
+            # Fallback: search for any .xcodeproj or .xcworkspace
+            PROJECT=$(find . -name "*.xcodeproj" -o -name "*.xcworkspace" | grep -i melonx | head -1)
+            if [ -z "$PROJECT" ]; then
+              PROJECT=$(find . -name "*.xcodeproj" -o -name "*.xcworkspace" | head -1)
+            fi
+            if [ -z "$PROJECT" ]; then
+              echo "project_path=" >> $GITHUB_OUTPUT
+              echo "project_dir=" >> $GITHUB_OUTPUT
+              echo "project_type=" >> $GITHUB_OUTPUT
+              echo "scheme=" >> $GITHUB_OUTPUT
+              echo "workspace_name=" >> $GITHUB_OUTPUT
+              echo "No Xcode project found"
+              exit 0
+            fi
+            
+            PROJECT_DIR=$(dirname "$PROJECT")
+            PROJECT_NAME=$(basename "$PROJECT" .xcodeproj)
+            PROJECT_NAME=$(basename "$PROJECT_NAME" .xcworkspace)
+            
+            if [[ "$PROJECT" == *.xcworkspace ]]; then
+              PROJECT_TYPE="workspace"
+              WORKSPACE_NAME=$(basename "$PROJECT" .xcworkspace)
+            else
+              PROJECT_TYPE="project"
+            fi
+            
+            # Try to find scheme
+            SCHEME=$(xcodebuild -list -project "$PROJECT" 2>/dev/null | grep -A 100 "Schemes:" | grep -v "Schemes:" | head -1 | xargs || echo "$PROJECT_NAME")
+            if [ -z "$SCHEME" ] || [ "$SCHEME" = "Schemes:" ]; then
+              SCHEME="$PROJECT_NAME"
+            fi
           fi
           
           echo "project_path=$PROJECT" >> $GITHUB_OUTPUT
@@ -66,17 +77,20 @@ jobs:
           echo "project_type=$PROJECT_TYPE" >> $GITHUB_OUTPUT
           echo "scheme=$SCHEME" >> $GITHUB_OUTPUT
           echo "workspace_name=$WORKSPACE_NAME" >> $GITHUB_OUTPUT
-          echo "Found: $PROJECT_TYPE at $PROJECT, scheme: $SCHEME"
+          echo "Using: $PROJECT_TYPE at $PROJECT, scheme: $SCHEME"
 
       - name: Build (unsigned) for iOS device
         if: steps.find_project.outputs.project_path != ''
         run: |
           set -euo pipefail
-          cd "${{ steps.find_project.outputs.project_dir }}"
           
+          PROJECT_PATH="${{ steps.find_project.outputs.project_path }}"
+          SCHEME="${{ steps.find_project.outputs.scheme }}"
+          
+          # Use absolute path from workspace root
           if [ "${{ steps.find_project.outputs.project_type }}" = "workspace" ]; then
-            xcodebuild -workspace "${{ steps.find_project.outputs.workspace_name }}.xcworkspace" \
-              -scheme "${{ steps.find_project.outputs.scheme }}" \
+            xcodebuild -workspace "$PROJECT_PATH" \
+              -scheme "$SCHEME" \
               -destination 'generic/platform=iOS' \
               -configuration Release \
               -sdk iphoneos \
@@ -87,8 +101,8 @@ jobs:
               DEVELOPMENT_TEAM="" \
               build
           else
-            xcodebuild -project "${{ steps.find_project.outputs.project_path }}" \
-              -scheme "${{ steps.find_project.outputs.scheme }}" \
+            xcodebuild -project "$PROJECT_PATH" \
+              -scheme "$SCHEME" \
               -destination 'generic/platform=iOS' \
               -configuration Release \
               -sdk iphoneos \
@@ -104,18 +118,25 @@ jobs:
         if: steps.find_project.outputs.project_path != ''
         run: |
           set -euo pipefail
-          cd "${{ steps.find_project.outputs.project_dir }}"
           
-          APP_PATH="build/DerivedData/Build/Products/Release-iphoneos/${{ steps.find_project.outputs.scheme }}.app"
+          SCHEME="${{ steps.find_project.outputs.scheme }}"
+          # App name might be different from scheme - try both
+          APP_PATH="build/DerivedData/Build/Products/Release-iphoneos/$SCHEME.app"
+          [ -d "$APP_PATH" ] || APP_PATH=$(find build/DerivedData -name "MeloNX.app" -type d | head -1)
           [ -d "$APP_PATH" ] || APP_PATH=$(find build/DerivedData -name "*.app" -type d | grep -i melonx | head -1)
           [ -d "$APP_PATH" ] || APP_PATH=$(find build/DerivedData -name "*.app" -type d | head -1)
           
           if [ ! -d "$APP_PATH" ]; then
-            echo "App bundle not found"
+            echo "App bundle not found. Searched for:"
+            echo "  - $SCHEME.app"
+            echo "  - MeloNX.app"
+            find build/DerivedData -name "*.app" -type d || true
             exit 1
           fi
           
           APP_NAME=$(basename "$APP_PATH" .app)
+          echo "Found app: $APP_NAME at $APP_PATH"
+          
           mkdir -p build/IPA/Payload
           rm -rf "build/IPA/Payload/$APP_NAME.app"
           cp -R "$APP_PATH" "build/IPA/Payload/"
