@@ -1,5 +1,19 @@
 name: Mako
+# DISABLED: Requires private Ryujinx/Ryujinx-Mako action not available in fork
 on:
+  workflow_dispatch:
+    # Original triggers disabled - uncomment if you set up your own Mako action
+  # discussion:
+  #   types: [created, edited, answered, unanswered, category_changed]
+  # discussion_comment:
+  #   types: [created, edited]
+  # gollum:
+  # issue_comment:
+  #   types: [created, edited]
+  # issues:
+  #   types: [opened, edited, reopened, pinned, milestoned, demilestoned, assigned, unassigned, labeled, unlabeled]
+  # pull_request_target:
+  #   types: [opened, edited, reopened, synchronize, ready_for_review, assigned, unassigned]
   discussion:
     types: [created, edited, answered, unanswered, category_changed]
   discussion_comment:
@@ -32,10 +46,13 @@ jobs:
           ref: master
 
       - name: Run Mako command
-        uses: Ryujinx/Ryujinx-Mako@master
-        with:
-          command: exec-ryujinx-tasks
-          args: --event-name "${{ github.event_name }}" --event-path "${{ github.event_path }}" -w "${{ github.workspace }}" "${{ github.repository }}" "${{ github.run_id }}"
-          app_id: ${{ secrets.MAKO_APP_ID }}
-          private_key: ${{ secrets.MAKO_PRIVATE_KEY }}
-          installation_id: ${{ secrets.MAKO_INSTALLATION_ID }}
+        # DISABLED: Requires private Ryujinx/Ryujinx-Mako action
+        # Uncomment and set up your own Mako action if needed
+        run: echo "Mako workflow disabled - requires private action"
+        # uses: Ryujinx/Ryujinx-Mako@master
+        # with:
+        #   command: exec-ryujinx-tasks
+        #   args: --event-name "${{ github.event_name }}" --event-path "${{ github.event_path }}" -w "${{ github.workspace }}" "${{ github.repository }}" "${{ github.run_id }}"
+        #   app_id: ${{ secrets.MAKO_APP_ID }}
+        #   private_key: ${{ secrets.MAKO_PRIVATE_KEY }}
+        #   installation_id: ${{ secrets.MAKO_INSTALLATION_ID }}
