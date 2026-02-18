@@ -83,6 +83,22 @@ jobs:
           echo "workspace_name=$WORKSPACE_NAME" >> $GITHUB_OUTPUT
           echo "Using: $PROJECT_TYPE at $PROJECT, scheme: $SCHEME"
 
+      - name: Verify project exists
+        if: steps.find_project.outputs.project_path != ''
+        run: |
+          PROJECT_PATH="${{ steps.find_project.outputs.project_path }}"
+          echo "Checking for project at: $PROJECT_PATH"
+          if [ ! -e "$PROJECT_PATH" ]; then
+            echo "ERROR: Project not found at $PROJECT_PATH"
+            echo "Current directory: $(pwd)"
+            echo "Listing src/MeloNX:"
+            ls -la src/MeloNX/ 2>/dev/null || echo "  src/MeloNX/ not found"
+            echo "Searching for .xcodeproj:"
+            find . -name "*.xcodeproj" -type d 2>/dev/null | head -5
+            exit 1
+          fi
+          echo "Project found: $PROJECT_PATH"
+
       - name: Build (unsigned) for iOS device
         if: steps.find_project.outputs.project_path != ''
         run: |
@@ -90,6 +106,8 @@ jobs:
           
           PROJECT_PATH="${{ steps.find_project.outputs.project_path }}"
           SCHEME="${{ steps.find_project.outputs.scheme }}"
+          
+          echo "Building with project: $PROJECT_PATH, scheme: $SCHEME"
           
           # Use absolute path from workspace root
           if [ "${{ steps.find_project.outputs.project_type }}" = "workspace" ]; then
