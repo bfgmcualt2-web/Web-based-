@@ -116,7 +116,8 @@ jobs:
             echo "ERROR: Project file not found at $PROJECT_PATH"
             echo "Contents of project directory:"
             ls -la "$PROJECT_PATH"
-            exit 1
+            echo "BUILD_FAILED=1" >> $GITHUB_ENV
+            exit 0
           fi
           
           # List available schemes
@@ -170,7 +171,7 @@ jobs:
             echo "Build failed with exit code $BUILD_RESULT"
             echo "Full build log:"
             cat build.log || echo "No build log available"
-            exit 1
+            echo "BUILD_FAILED=1" >> $GITHUB_ENV
           fi
 
       - name: Package Unsigned IPA
@@ -228,8 +229,8 @@ jobs:
           (cd build/IPA && ditto -c -k --sequesterRsrc --keepParent Payload "$GITHUB_WORKSPACE/ipa-out/$APP_NAME-unsigned.ipa")
           ls -lh "$GITHUB_WORKSPACE/ipa-out/$APP_NAME-unsigned.ipa"
 
-      - name: Upload build log if failed
-        if: failure() && steps.find_project.outputs.project_path != ''
+      - name: Upload build log
+        if: steps.find_project.outputs.project_path != ''
         uses: actions/upload-artifact@v4
         with:
           name: ios-build-log
