@@ -111,6 +111,23 @@ jobs:
           echo "Listing project directory:"
           ls -la "$(dirname "$PROJECT_PATH")"
           
+          # Check if project file actually exists
+          if [ ! -f "$PROJECT_PATH"/project.pbxproj ] && [ ! -f "$PROJECT_PATH"/contents.xcworkspacedata ]; then
+            echo "ERROR: Project file not found at $PROJECT_PATH"
+            echo "Contents of project directory:"
+            ls -la "$PROJECT_PATH"
+            exit 1
+          fi
+          
+          # List available schemes
+          echo "Available schemes:"
+          if [ "${{ steps.find_project.outputs.project_type }}" = "workspace" ]; then
+            xcodebuild -list -workspace "$PROJECT_PATH" || echo "Failed to list workspace schemes"
+          else
+            xcodebuild -list -project "$PROJECT_PATH" || echo "Failed to list project schemes"
+          fi
+          
+          echo "Starting build process..."
           # Use absolute path from workspace root
           if [ "${{ steps.find_project.outputs.project_type }}" = "workspace" ]; then
             echo "Building workspace..."
@@ -124,7 +141,8 @@ jobs:
               CODE_SIGNING_REQUIRED=NO \
               CODE_SIGNING_ALLOWED=NO \
               DEVELOPMENT_TEAM="" \
-              build || echo "Workspace build completed with warnings"
+              build 2>&1 | tee build.log
+            BUILD_RESULT=${PIPESTATUS[0]}
           else
             echo "Building project..."
             xcodebuild -project "$PROJECT_PATH" \
@@ -137,11 +155,23 @@ jobs:
               CODE_SIGNING_REQUIRED=NO \
               CODE_SIGNING_ALLOWED=NO \
               DEVELOPMENT_TEAM="" \
-              build || echo "Project build completed with warnings"
+              build 2>&1 | tee build.log
+            BUILD_RESULT=${PIPESTATUS[0]}
           fi
+          
+          echo "Build completed with result: $BUILD_RESULT"
+          echo "Last 50 lines of build log:"
+          tail -50 build.log || echo "No build log found"
           
           echo "Build completed. Checking for build output..."
           ls -la build/DerivedData/Build/Products/Release-iphoneos/ || echo "No Release-iphoneos directory found"
+          
+          if [ $BUILD_RESULT -ne 0 ]; then
+            echo "Build failed with exit code $BUILD_RESULT"
+            echo "Full build log:"
+            cat build.log || echo "No build log available"
+            exit 1
+          fi
 
       - name: Package Unsigned IPA
         if: steps.find_project.outputs.project_path != ''
@@ -197,6 +227,14 @@ jobs:
           mkdir -p "$GITHUB_WORKSPACE/ipa-out"
           (cd build/IPA && ditto -c -k --sequesterRsrc --keepParent Payload "$GITHUB_WORKSPACE/ipa-out/$APP_NAME-unsigned.ipa")
           ls -lh "$GITHUB_WORKSPACE/ipa-out/$APP_NAME-unsigned.ipa"
+
+      - name: Upload build log if failed
+        if: failure() && steps.find_project.outputs.project_path != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-build-log
+          path: build.log
+          retention-days: 7
 
       - name: Check for IPA before upload
         if: steps.find_project.outputs.project_path != ''
