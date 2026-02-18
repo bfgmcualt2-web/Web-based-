@@ -4,8 +4,8 @@
 name: Unsigned IPA
 
 on:
-  # push:
-  #   branches: [ XC-ios-ht, main, master ]
+  push:
+    branches: [ XC-ios-ht, main, master ]
   workflow_dispatch:
 
 jobs:
