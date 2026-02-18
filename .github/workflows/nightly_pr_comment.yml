@@ -1,9 +1,10 @@
-name: Comment PR artifacts links
+name: Comment PR artifacts links (DISABLED)
 
 on:
-  workflow_run:
-    workflows: ['Perform checks']
-    types: [completed]
+  # workflow_run:
+  #   workflows: ['Perform checks']
+  #   types: [completed]
+  workflow_dispatch:
 
 jobs:
   pr_comment:

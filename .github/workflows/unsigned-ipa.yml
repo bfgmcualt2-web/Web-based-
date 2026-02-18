@@ -4,8 +4,8 @@
 name: Unsigned IPA
 
 on:
-  push:
-    branches: [ XC-ios-ht, main, master ]
+  # push:
+  #   branches: [ XC-ios-ht, main, master ]
   workflow_dispatch:
 
 jobs:
@@ -15,6 +15,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
+          repository: devz906/MelonJR
           lfs: true
 
       - name: Select Xcode

@@ -1,7 +1,8 @@
-name: "Pull Request Triage"
+name: "Pull Request Triage (DISABLED)"
 on:
-  pull_request_target:
-    types: [opened, ready_for_review]
+  # pull_request_target:
+  #   types: [opened, ready_for_review]
+  workflow_dispatch:
 
 jobs:
   triage:
@@ -18,7 +19,7 @@ jobs:
         with:
            # Ensure we pin the source origin as pull_request_target run under forks.
            fetch-depth: 0
-           repository: Ryujinx/Ryujinx
+           repository: devz906/MelonJR
            ref: master
 
       - name: Update labels based on changes

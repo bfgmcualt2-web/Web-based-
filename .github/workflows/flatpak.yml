@@ -26,6 +26,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          repository: devz906/MelonJR
           path: Ryujinx
 
       - uses: actions/setup-dotnet@v4
@@ -157,7 +158,7 @@ jobs:
               continue
             if (
               source["type"] == "git"
-              and source["url"] == "https://github.com/Ryujinx/Ryujinx.git"
+              and source["url"] == "https://github.com/devz906/MelonJR.git"
             ):
               source["commit"] = os.environ['RYUJINX_GIT_HASH']
 

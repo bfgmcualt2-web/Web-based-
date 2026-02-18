@@ -23,8 +23,8 @@ on:
     types: [created, edited]
   issues:
     types: [opened, edited, reopened, pinned, milestoned, demilestoned, assigned, unassigned, labeled, unlabeled]
-  pull_request_target:
-    types: [opened, edited, reopened, synchronize, ready_for_review, assigned, unassigned]
+  # pull_request_target:
+  #   types: [opened, edited, reopened, synchronize, ready_for_review, assigned, unassigned]
 
 jobs:
   tasks:
@@ -42,7 +42,7 @@ jobs:
         with:
           # Ensure we pin the source origin as pull_request_target run under forks.
           fetch-depth: 0
-          repository: Ryujinx/Ryujinx
+          repository: devz906/MelonJR
           ref: master
 
       - name: Run Mako command

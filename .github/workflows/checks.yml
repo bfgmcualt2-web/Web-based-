@@ -1,15 +1,16 @@
 name: Perform checks
 
 on:
-  pull_request:
-    branches: [ master ]
-    paths:
-      - '**'
-      - '!.github/**'
-      - '!*.yml'
-      - '!*.config'
-      - '!*.md'
-      - '.github/workflows/*.yml'
+  # pull_request:
+  #   branches: [ master ]
+  #   paths:
+  #     - '**'
+  #     - '!.github/**'
+  #     - '!*.yml'
+  #     - '!*.config'
+  #     - '!*.md'
+  #     - '.github/workflows/*.yml'
+  workflow_dispatch:
 
 permissions:
   pull-requests: write
@@ -25,6 +26,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          repository: devz906/MelonJR
           fetch-depth: 0
 
       - uses: actions/setup-dotnet@v4

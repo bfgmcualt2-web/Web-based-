@@ -3,14 +3,14 @@ name: Release job
 on:
   workflow_dispatch:
     inputs: {}
-  push:
-    branches: [ master ]
-    paths-ignore:
-      - '.github/**'
-      - '*.yml'
-      - '*.json'
-      - '*.config'
-      - '*.md'
+  # push:
+  #   branches: [ master ]
+  #   paths-ignore:
+  #     - '.github/**'
+  #     - '*.yml'
+  #     - '*.json'
+  #     - '*.config'
+  #     - '*.md'
 
 concurrency: release
 
@@ -49,7 +49,7 @@ jobs:
         with:
           name: ${{ steps.version_info.outputs.build_version }}
           tag: ${{ steps.version_info.outputs.build_version }}
-          body: "For more information about this release please check out the official [Changelog](https://github.com/Ryujinx/Ryujinx/wiki/Changelog)."
+          body: "For more information about this release please check out the official [Changelog](https://github.com/devz906/MelonJR/wiki/Changelog)."
           omitBodyDuringUpdate: true
           owner: ${{ env.RYUJINX_TARGET_RELEASE_CHANNEL_OWNER }}
           repo: ${{ env.RYUJINX_TARGET_RELEASE_CHANNEL_REPO }}
@@ -67,6 +67,8 @@ jobs:
           - { name: linux-arm64, os: ubuntu-latest,  zip_os_name: linux_arm64 }
     steps:
       - uses: actions/checkout@v4
+        with:
+          repository: devz906/MelonJR
 
       - uses: actions/setup-dotnet@v4
         with:
@@ -136,7 +138,7 @@ jobs:
           name: ${{ steps.version_info.outputs.build_version }}
           artifacts: "release_output/*.tar.gz,release_output/*.zip"
           tag: ${{ steps.version_info.outputs.build_version }}
-          body: "For more information about this release please check out the official [Changelog](https://github.com/Ryujinx/Ryujinx/wiki/Changelog)."
+          body: "For more information about this release please check out the official [Changelog](https://github.com/devz906/MelonJR/wiki/Changelog)."
           omitBodyDuringUpdate: true
           allowUpdates: true
           replacesArtifacts: true
@@ -150,6 +152,8 @@ jobs:
     timeout-minutes: ${{ fromJSON(vars.JOB_TIMEOUT) }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          repository: devz906/MelonJR
 
       - uses: actions/setup-dotnet@v4
         with:
@@ -202,7 +206,7 @@ jobs:
           name: ${{ steps.version_info.outputs.build_version }}
           artifacts: "publish_ava/*.tar.gz, publish_headless/*.tar.gz"
           tag: ${{ steps.version_info.outputs.build_version }}
-          body: "For more information about this release please check out the official [Changelog](https://github.com/Ryujinx/Ryujinx/wiki/Changelog)."
+          body: "For more information about this release please check out the official [Changelog](https://github.com/devz906/MelonJR/wiki/Changelog)."
           omitBodyDuringUpdate: true
           allowUpdates: true
           replacesArtifacts: true
