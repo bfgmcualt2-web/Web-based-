@@ -109,9 +109,13 @@ jobs:
           SCHEME="${{ steps.find_project.outputs.scheme }}"
           
           echo "Building with project: $PROJECT_PATH, scheme: $SCHEME"
+          echo "Current directory: $(pwd)"
+          echo "Listing project directory:"
+          ls -la "$(dirname "$PROJECT_PATH")"
           
           # Use absolute path from workspace root
           if [ "${{ steps.find_project.outputs.project_type }}" = "workspace" ]; then
+            echo "Building workspace..."
             xcodebuild -workspace "$PROJECT_PATH" \
               -scheme "$SCHEME" \
               -destination 'generic/platform=iOS' \
@@ -122,8 +126,28 @@ jobs:
               CODE_SIGNING_REQUIRED=NO \
               CODE_SIGNING_ALLOWED=NO \
               DEVELOPMENT_TEAM="" \
-              build
+              build || {
+              echo "Workspace build failed, trying project build..."
+              PROJECT_PATH="${PROJECT_PATH%.xcworkspace}.xcodeproj"
+              if [ -f "$PROJECT_PATH" ]; then
+                xcodebuild -project "$PROJECT_PATH" \
+                  -scheme "$SCHEME" \
+                  -destination 'generic/platform=iOS' \
+                  -configuration Release \
+                  -sdk iphoneos \
+                  -derivedDataPath build/DerivedData \
+                  CODE_SIGN_IDENTITY="" \
+                  CODE_SIGNING_REQUIRED=NO \
+                  CODE_SIGNING_ALLOWED=NO \
+                  DEVELOPMENT_TEAM="" \
+                  build
+              else
+                echo "No project file found at $PROJECT_PATH"
+                exit 1
+              fi
+            }
           else
+            echo "Building project..."
             xcodebuild -project "$PROJECT_PATH" \
               -scheme "$SCHEME" \
               -destination 'generic/platform=iOS' \
@@ -143,17 +167,32 @@ jobs:
           set -euo pipefail
           
           SCHEME="${{ steps.find_project.outputs.scheme }}"
+          echo "Looking for app with scheme: $SCHEME"
+          
           # App name might be different from scheme - try both
           APP_PATH="build/DerivedData/Build/Products/Release-iphoneos/$SCHEME.app"
-          [ -d "$APP_PATH" ] || APP_PATH=$(find build/DerivedData -name "MeloNX.app" -type d | head -1)
-          [ -d "$APP_PATH" ] || APP_PATH=$(find build/DerivedData -name "*.app" -type d | grep -i melonx | head -1)
-          [ -d "$APP_PATH" ] || APP_PATH=$(find build/DerivedData -name "*.app" -type d | head -1)
+          echo "Checking primary path: $APP_PATH"
+          [ -d "$APP_PATH" ] || {
+            echo "Primary path not found, searching for MeloNX.app..."
+            APP_PATH=$(find build/DerivedData -name "MeloNX.app" -type d | head -1)
+          }
+          [ -d "$APP_PATH" ] || {
+            echo "MeloNX.app not found, searching for melonx apps..."
+            APP_PATH=$(find build/DerivedData -name "*.app" -type d | grep -i melonx | head -1)
+          }
+          [ -d "$APP_PATH" ] || {
+            echo "No melonx apps found, listing all apps..."
+            APP_PATH=$(find build/DerivedData -name "*.app" -type d | head -1)
+          }
           
           if [ ! -d "$APP_PATH" ]; then
             echo "App bundle not found. Searched for:"
             echo "  - $SCHEME.app"
             echo "  - MeloNX.app"
-            find build/DerivedData -name "*.app" -type d || true
+            echo "DerivedData contents:"
+            find build/DerivedData -name "*.app" -type d || echo "  No .app files found"
+            echo "Build directory structure:"
+            find build/DerivedData -type d | head -10 || echo "  Build directory not found"
             exit 1
           fi
           
