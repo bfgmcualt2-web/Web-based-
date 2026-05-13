@@ -15,6 +15,14 @@
        Developed from the ground up, MeloNX is open-source and available on Github under the <a href="https://github.com/MeloNX-Emu/MeloNX/blob/master/LICENSE.txt" target="_blank">MeloNX license</a>. <br 
 </p>
 
+## GitHub Pages Browser Runtime
+
+This repository includes a browser runtime shell at the repository root ([`index.html`](index.html), [`styles.css`](styles.css), [`app.js`](app.js), and [`runtime-worker.js`](runtime-worker.js)) plus the same runtime under [`site/`](site/) for the GitHub Actions Pages artifact. Keeping the runtime files at the root ensures GitHub Pages repositories configured to publish from the branch root load the runtime instead of falling back to rendering this README. The runtime is pure HTML, CSS, and JavaScript so it can run from GitHub Pages: it starts a Web Worker, checks browser capabilities, renders to a canvas, and mounts local files without uploading them.
+
+The current browser runtime is a host harness for a future WebAssembly emulator core. The native MeloNX emulator still needs to be ported to a browser-safe WebAssembly backend before commercial games can execute inside GitHub Pages.
+
+To publish it, enable **Settings → Pages → GitHub Actions** for the repository, then run the **Deploy GitHub Pages** workflow or push to any branch. The workflow packages the root runtime files into `_pages` and deploys that artifact, so the live site should show `index.html` rather than the README.
+
 # Compatibility
 
 MeloNX works on iPhone 11 (XS/XR may work but can have issues) and later and iPad 8th Gen and later. Check out the Compatibility on the <a href="https://melonx.org/compatibility/" target="_blank">website</a>.

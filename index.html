@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="MeloNX browser runtime shell for GitHub Pages with local file mounting and capability checks.">
+  <title>MeloNX Browser Runtime</title>
+  <link rel="stylesheet" href="styles.css">
+  <script defer src="app.js"></script>
+</head>
+<body>
+  <header class="hero compact-hero">
+    <nav class="nav" aria-label="Project navigation">
+      <a class="brand" href="./" aria-label="MeloNX home">
+        <span class="brand-mark" aria-hidden="true">M</span>
+        <span>MeloNX Runtime</span>
+      </a>
+      <div class="nav-links">
+        <a href="#runtime">Runtime</a>
+        <a href="#files">Files</a>
+        <a href="#source">Source</a>
+      </div>
+    </nav>
+
+    <section class="hero-content runtime-hero">
+      <p class="eyebrow">GitHub Pages browser runtime</p>
+      <h1>Run the MeloNX web shell directly in your browser.</h1>
+      <p class="lead">
+        This page now boots a client-side runtime harness: it starts a browser worker,
+        checks required web platform features, mounts local files without uploading them,
+        and prepares a canvas host for a future WebAssembly emulator core.
+      </p>
+      <div class="hero-actions">
+        <a class="button primary" href="#runtime">Open runtime</a>
+        <a class="button secondary" data-repo-link="repo" href="../../">Open source</a>
+      </div>
+    </section>
+  </header>
+
+  <main>
+    <section id="runtime" class="panel runtime-shell" aria-labelledby="runtime-title">
+      <div class="runtime-toolbar">
+        <div>
+          <p class="section-kicker">Live browser runtime</p>
+          <h2 id="runtime-title">MeloNX browser host</h2>
+        </div>
+        <div class="toolbar-actions">
+          <button class="button primary" id="boot-runtime" type="button">Boot runtime</button>
+          <button class="button secondary" id="reset-runtime" type="button">Reset</button>
+        </div>
+      </div>
+
+      <div class="runtime-grid">
+        <section class="screen-card" aria-label="Runtime display">
+          <canvas id="runtime-screen" width="1280" height="720">
+            Your browser does not support canvas rendering.
+          </canvas>
+          <div class="screen-overlay" id="runtime-overlay">Runtime idle</div>
+        </section>
+
+        <aside class="status-card" aria-label="Runtime status">
+          <div class="status-row">
+            <span>Runtime</span>
+            <strong id="runtime-state">Idle</strong>
+          </div>
+          <div class="status-row">
+            <span>Worker</span>
+            <strong id="worker-state">Not started</strong>
+          </div>
+          <div class="status-row">
+            <span>Mounted files</span>
+            <strong id="mounted-count">0</strong>
+          </div>
+          <div class="status-row">
+            <span>Frames</span>
+            <strong id="frame-count">0</strong>
+          </div>
+          <p class="muted small-text">
+            This is a browser runtime harness. It can run on GitHub Pages because it is pure
+            HTML/CSS/JavaScript. A native Switch emulation core would still need to be ported to
+            a browser-safe WebAssembly backend before games can execute here.
+          </p>
+        </aside>
+      </div>
+    </section>
+
+    <section id="files" class="panel two-column">
+      <div>
+        <p class="section-kicker">Local file mounting</p>
+        <h2>Mount files privately in the browser.</h2>
+        <p>
+          Select keys, firmware, homebrew, or test assets to attach them to the runtime session.
+          Files stay on your device and are never uploaded by this static page.
+        </p>
+        <label class="file-picker">
+          <input id="file-input" type="file" multiple>
+          <span>Choose files</span>
+        </label>
+      </div>
+      <div class="card file-card">
+        <h3>Mounted files</h3>
+        <ul id="file-list" class="file-list">
+          <li>No files mounted yet.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="panel">
+      <p class="section-kicker">Browser support</p>
+      <h2>Runtime capability checks</h2>
+      <div id="capability-list" class="capability-list" aria-live="polite"></div>
+    </section>
+
+    <section id="source" class="panel two-column source-panel">
+      <div>
+        <p class="section-kicker">Repository aware</p>
+        <h2>Links adapt to the Pages URL.</h2>
+        <p>
+          The runtime reads the current GitHub Pages hostname and path to infer the owning
+          repository, keeping source and release links working on forks.
+        </p>
+        <p>
+          <a data-repo-link="releases" href="../../releases">View releases</a>
+          <span aria-hidden="true"> · </span>
+          <a data-repo-link="compile" href="../../blob/main/Compile.md">Compile guide</a>
+        </p>
+      </div>
+      <dl class="repo-details" aria-live="polite">
+        <div>
+          <dt>Detected owner</dt>
+          <dd id="repo-owner">Unknown</dd>
+        </div>
+        <div>
+          <dt>Detected repository</dt>
+          <dd id="repo-name">Unknown</dd>
+        </div>
+        <div>
+          <dt>Pages mode</dt>
+          <dd id="pages-mode">Static</dd>
+        </div>
+      </dl>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <p>Browser runtime shell deployed as a static GitHub Pages site.</p>
+  </footer>
+</body>
+</html>
